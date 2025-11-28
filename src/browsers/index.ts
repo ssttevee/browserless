@@ -376,6 +376,37 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * Sets the keep-alive time for a browser session.
+   * The session will be kept alive for the specified timeout after all clients disconnect.
+   *
+   * @param target - The session ID or tracking ID of the session to set keep-alive for
+   * @param timeout - The duration in milliseconds to keep the browser alive
+   * @returns An object with the session ID and reconnection URL
+   */
+  public async setSessionKeepAlive(
+    target: string,
+    timeout: number,
+  ): Promise<{ browserId: string; browserWSEndpoint: string | null }> {
+    this.log.debug(
+      `setSessionKeepAlive invoked target: "${target}", timeout: ${timeout}`,
+    );
+    const sessions = Array.from(this.browsers);
+    for (const [browser, session] of sessions) {
+      if (session.trackingId === target || session.id === target) {
+        const browserWSEndpoint = browser.setKeepAlive(timeout);
+        this.log.debug(
+          `Set keep-alive for browser "${session.id}" for ${timeout}ms`,
+        );
+        return {
+          browserId: session.id,
+          browserWSEndpoint,
+        };
+      }
+    }
+    throw new NotFound(`Couldn't locate session for id: "${target}"`);
+  }
+
   public async getAllSessions(
     trackingId?: string,
   ): Promise<BrowserlessSessionJSON[]> {

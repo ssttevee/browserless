@@ -34,6 +34,7 @@ export class ChromiumCDP extends EventEmitter {
   protected logger: Logger;
   protected proxy = httpProxy.createProxyServer();
   protected executablePath = playwright.chromium.executablePath();
+  protected keepUntilTime: number = 0;
 
   constructor({
     blockAds,
@@ -62,7 +63,30 @@ export class ChromiumCDP extends EventEmitter {
   }
 
   public keepUntil() {
-    return 0;
+    return this.keepUntilTime;
+  }
+
+  /**
+   * Sets the keep-alive time for the browser session.
+   * When set, the browser will be kept alive for the specified duration
+   * after all clients disconnect.
+   *
+   * @param timeout - The duration in milliseconds to keep the browser alive
+   * @returns The reconnection URL that can be used to reconnect to this session
+   */
+  public setKeepAlive(timeout: number): string | null {
+    if (timeout <= 0) {
+      this.keepUntilTime = 0;
+      this.logger.info(`Keep-alive disabled for ${this.constructor.name}`);
+      return null;
+    }
+
+    this.keepUntilTime = Date.now() + timeout;
+    this.logger.info(
+      `Keep-alive set for ${this.constructor.name} until ${new Date(this.keepUntilTime).toISOString()}`,
+    );
+
+    return this.publicWSEndpoint(null);
   }
 
   public getPageId(page: Page): string {

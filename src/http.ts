@@ -141,6 +141,7 @@ export enum HTTPRoutes {
 export enum HTTPManagementRoutes {
   active = '/active?(/)',
   config = '/config?(/)',
+  keepAlive = '/keep-alive/+([0-9a-zA-Z-_])?(/)',
   kill = '/kill/+([0-9a-zA-Z-_])?(/)',
   meta = '/meta?(/)',
   metrics = '/metrics?(/)',

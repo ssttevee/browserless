@@ -610,4 +610,194 @@ describe('Chromium WebSocket API', function () {
 
     expect(didError).to.be.true;
   });
+
+  describe('Keep-Alive Feature', function () {
+    it('keeps the browser session alive after client disconnects when keep-alive is set', async () => {
+      const config = new Config();
+      config.setToken('browserless');
+      const metrics = new Metrics();
+      await start({ config, metrics });
+
+      // Connect to create a session
+      const browser = await puppeteer.connect({
+        browserWSEndpoint: `ws://localhost:3000/chromium?token=browserless`,
+      });
+
+      await sleep(100);
+
+      // Get session info (sessions API returns both browser and page sessions)
+      const sessions = (await fetchJson(
+        'http://localhost:3000/sessions?token=browserless',
+      )) as BrowserlessSessionJSON[];
+      // Find the browser session (type: 'browser')
+      const session = sessions.find((s) => (s as BrowserlessSessionJSON & { type: string }).type === 'browser');
+      expect(session).to.exist;
+
+      // Set keep-alive for 5 seconds using HTTP API
+      const keepAliveResponse = await fetch(
+        `http://localhost:3000/keep-alive/${session!.browserId}?token=browserless`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeout: 5000 }),
+        },
+      );
+      expect(keepAliveResponse.status).to.equal(200);
+      const keepAliveResult = await keepAliveResponse.json();
+      expect(keepAliveResult).to.have.property('browserWSEndpoint');
+
+      // Disconnect the browser
+      await browser.disconnect();
+      await sleep(200);
+
+      // Session should still exist (filter for browser sessions)
+      const sessionsAfterDisconnect = (await fetchJson(
+        'http://localhost:3000/sessions?token=browserless',
+      )) as BrowserlessSessionJSON[];
+      const browserSessionsAfterDisconnect = sessionsAfterDisconnect.filter(
+        (s) => (s as BrowserlessSessionJSON & { type: string }).type === 'browser',
+      );
+      expect(browserSessionsAfterDisconnect).to.have.length(1);
+      expect(browserSessionsAfterDisconnect[0].browserId).to.equal(session!.browserId);
+
+      // Wait for keep-alive to expire
+      await sleep(5500);
+
+      // Session should now be closed
+      const sessionsAfterExpiry = (await fetchJson(
+        'http://localhost:3000/sessions?token=browserless',
+      )) as BrowserlessSessionJSON[];
+      expect(sessionsAfterExpiry).to.have.length(0);
+    });
+
+    it('allows reconnection to a session within keep-alive window', async () => {
+      const config = new Config();
+      config.setToken('browserless');
+      const metrics = new Metrics();
+      await start({ config, metrics });
+
+      // Connect to create a session
+      const browser = await puppeteer.connect({
+        browserWSEndpoint: `ws://localhost:3000/chromium?token=browserless`,
+      });
+
+      await sleep(100);
+
+      // Get session info
+      const [session] = (await fetchJson(
+        'http://localhost:3000/sessions?token=browserless',
+      )) as BrowserlessSessionJSON[];
+
+      // Set keep-alive for 10 seconds using HTTP API
+      const keepAliveResponse = await fetch(
+        `http://localhost:3000/keep-alive/${session.browserId}?token=browserless`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeout: 10000 }),
+        },
+      );
+      expect(keepAliveResponse.status).to.equal(200);
+
+      // Disconnect the browser
+      await browser.disconnect();
+      await sleep(200);
+
+      // Reconnect using the browser endpoint
+      const reconnectedBrowser = await puppeteer.connect({
+        browserWSEndpoint: `ws://localhost:3000/devtools/browser/${session.browserId}?token=browserless`,
+      });
+
+      expect(reconnectedBrowser.connected).to.be.true;
+
+      // Create a page to verify the browser is functional
+      const page = await reconnectedBrowser.newPage();
+      await page.goto('about:blank');
+      await page.close();
+
+      await reconnectedBrowser.disconnect();
+    });
+
+    it('returns 400 for invalid timeout value', async () => {
+      const config = new Config();
+      config.setToken('browserless');
+      const metrics = new Metrics();
+      await start({ config, metrics });
+
+      // Connect to create a session
+      const browser = await puppeteer.connect({
+        browserWSEndpoint: `ws://localhost:3000/chromium?token=browserless`,
+      });
+
+      await sleep(100);
+
+      // Get session info
+      const [session] = (await fetchJson(
+        'http://localhost:3000/sessions?token=browserless',
+      )) as BrowserlessSessionJSON[];
+
+      // Try to set invalid keep-alive value using HTTP API
+      const response = await fetch(
+        `http://localhost:3000/keep-alive/${session.browserId}?token=browserless`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeout: -1 }),
+        },
+      );
+      expect(response.status).to.equal(400);
+
+      await browser.disconnect();
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const config = new Config();
+      config.setToken('browserless');
+      const metrics = new Metrics();
+      await start({ config, metrics });
+
+      // Try to set keep-alive on non-existent session
+      const response = await fetch(
+        `http://localhost:3000/keep-alive/non-existent-session?token=browserless`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeout: 5000 }),
+        },
+      );
+      expect(response.status).to.equal(404);
+    });
+
+    it('allows setting keep-alive using trackingId', async () => {
+      const config = new Config();
+      config.setToken('browserless');
+      const metrics = new Metrics();
+      await start({ config, metrics });
+
+      const trackingId = 'test-tracking-id';
+
+      // Connect to create a session with trackingId
+      const browser = await puppeteer.connect({
+        browserWSEndpoint: `ws://localhost:3000/chromium?token=browserless&trackingId=${trackingId}`,
+      });
+
+      await sleep(100);
+
+      // Set keep-alive using trackingId
+      const keepAliveResponse = await fetch(
+        `http://localhost:3000/keep-alive/${trackingId}?token=browserless`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeout: 5000 }),
+        },
+      );
+      expect(keepAliveResponse.status).to.equal(200);
+
+      const keepAliveData = await keepAliveResponse.json();
+      expect(keepAliveData.browserWSEndpoint).to.be.a('string');
+
+      await browser.disconnect();
+    });
+  });
 });

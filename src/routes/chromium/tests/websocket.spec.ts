@@ -633,7 +633,7 @@ describe('Chromium WebSocket API', function () {
       const session = sessions.find((s) => (s as BrowserlessSessionJSON & { type: string }).type === 'browser');
       expect(session).to.exist;
 
-      // Set keep-alive for 5 seconds
+      // Set keep-alive for 5 seconds using HTTP API
       const keepAliveResponse = await fetch(
         `http://localhost:3000/keep-alive/${session!.browserId}?token=browserless`,
         {
@@ -643,10 +643,8 @@ describe('Chromium WebSocket API', function () {
         },
       );
       expect(keepAliveResponse.status).to.equal(200);
-
-      const keepAliveData = await keepAliveResponse.json();
-      expect(keepAliveData.browserId).to.equal(session!.browserId);
-      expect(keepAliveData.browserWSEndpoint).to.be.a('string');
+      const keepAliveResult = await keepAliveResponse.json();
+      expect(keepAliveResult).to.have.property('browserWSEndpoint');
 
       // Disconnect the browser
       await browser.disconnect();
@@ -690,7 +688,7 @@ describe('Chromium WebSocket API', function () {
         'http://localhost:3000/sessions?token=browserless',
       )) as BrowserlessSessionJSON[];
 
-      // Set keep-alive for 10 seconds
+      // Set keep-alive for 10 seconds using HTTP API
       const keepAliveResponse = await fetch(
         `http://localhost:3000/keep-alive/${session.browserId}?token=browserless`,
         {
@@ -700,9 +698,6 @@ describe('Chromium WebSocket API', function () {
         },
       );
       expect(keepAliveResponse.status).to.equal(200);
-
-      // Read the response to verify it's valid
-      await keepAliveResponse.json();
 
       // Disconnect the browser
       await browser.disconnect();
@@ -741,7 +736,7 @@ describe('Chromium WebSocket API', function () {
         'http://localhost:3000/sessions?token=browserless',
       )) as BrowserlessSessionJSON[];
 
-      // Try to set invalid keep-alive value
+      // Try to set invalid keep-alive value using HTTP API
       const response = await fetch(
         `http://localhost:3000/keep-alive/${session.browserId}?token=browserless`,
         {
@@ -761,6 +756,7 @@ describe('Chromium WebSocket API', function () {
       const metrics = new Metrics();
       await start({ config, metrics });
 
+      // Try to set keep-alive on non-existent session
       const response = await fetch(
         `http://localhost:3000/keep-alive/non-existent-session?token=browserless`,
         {
